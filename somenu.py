@@ -10,35 +10,38 @@ import sys
 
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gio, GLib
+gi.require_version('GMenu', '3.0')
+from gi.repository import Gtk, Gio, GLib, GMenu
 import os.path
-import xdg.Menu
 
 MENU_CONFIG = "/etc/xdg/menus/applications.menu"
 
-def build_menu(model):
-    'Build a Gtk.Menu from an xdg.Menu.Menu'
+def build_menu(directory):
+    'Build a Gtk.Menu from a GMenu.TreeDirectory'
     view = Gtk.Menu()
-    for entry in model.getEntries():
-        if not entry.Show:
-            continue
-        if isinstance(entry, xdg.Menu.Menu):
-            item = create_submenu(entry)
-        elif isinstance(entry, xdg.Menu.MenuEntry):
-            item = create_entry(entry.DesktopEntry)
-        elif isinstance(entry, xdg.Menu.Separator):
+    it = directory.iter()
+    for item_type in iter(it.next, GMenu.TreeItemType.INVALID):
+        if item_type == GMenu.TreeItemType.DIRECTORY:
+            item = create_submenu(it.get_directory())
+        elif item_type == GMenu.TreeItemType.ENTRY:
+            item = create_entry(it.get_entry())
+        elif item_type == GMenu.TreeItemType.SEPARATOR:
             item = Gtk.SeparatorMenuItem.new()
+        else:
+            # maybe at some point add support for headers and aliases
+            continue
         view.append(item)
     view.show_all()
     return view
 
-def build_menu_item(label, icon_name, comment):
+def build_menu_item(label, icon, comment):
     'Create a Gtk.Menu'
     item = Gtk.MenuItem()
     box = Gtk.Box()
-    image = get_image(icon_name)
+    #TODO: better handling of missing icons
+    image = icon and Gtk.Image(gicon=icon, icon_size=Gtk.IconSize.DIALOG, pixel_size=48, use_fallback=True)
     if image:
-        box.pack_start(get_image(icon_name), False, False, 0)
+        box.pack_start(image, False, False, 0)
     box.pack_end(Gtk.Label.new(label), True, True, 0)
     item.add(box)
     if comment is not None:
@@ -46,37 +49,23 @@ def build_menu_item(label, icon_name, comment):
     return item
 
 def create_entry(entry):
-    'Create a Gtk.MenuItem for an xdg.Menu.MenuEntry'
-    item = build_menu_item(entry.getName(), entry.getIcon(), entry.getComment())
-    item.connect('activate', on_execute, entry)
+    'Create a Gtk.MenuItem for an GMenu.TreeEntry'
+    info = entry.get_app_info()
+    item = build_menu_item(info.get_name(), info.get_icon(), info.get_description())
+    item.connect('activate', launch_app, info)
     return item
 
-def create_submenu(model):
-    'Add a submenu to a Gtk.Menu for an xdg.Menu.Menu'
-    submenu = build_menu(model)
-    item = build_menu_item(model.getName(), model.getIcon(), model.getComment())
+def create_submenu(directory):
+    'Add a submenu to a Gtk.Menu for a GMenu.TreeDirectory'
+    submenu = build_menu(directory)
+    item = build_menu_item(directory.get_name(), directory.get_icon(), directory.get_comment())
     item.set_submenu(submenu)
     return item
 
-def get_image(icon_name):
-    if not icon_name:
-        return None
-    try:
-        # FIXME: fix icon size
-        if os.path.isabs(icon_name):
-            image = Gtk.Image.new_from_file(icon_name)
-            image.set_pixel_size(16)
-            return image
-        return Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
-    except:
-        print("Failed to get icon for {}".format(icon_name))
-        # should we use a placeholder icon?
-        return None
+def launch_app(_menu, app):
+    'Launch an app from the menu'
+    app.launch()
 
-def on_execute(widget, entry):
-    'Callback for clicking on a menu entry'
-    app_info = Gio.DesktopAppInfo.new_from_filename(entry.filename)
-    app_info.launch()
 
 class MenuApplication(Gio.Application):
     '''The application to show the menu'''
@@ -104,15 +93,18 @@ class MenuApplication(Gio.Application):
         prefix_opt = options.lookup_value('prefix')
         file_opt = options.lookup_value('file')
         if file_opt:
-            conf_file = str(file_opt.get_bytestring())
+            conf_file = file_opt.get_bytestring().decode()
         elif prefix_opt:
             conf_file = '/etc/xdg/menus/{}-applications.menu'.format(prefix_opt.get_string())
         else:
             conf_file = '/etc/xdg/menus/applications.menu'
-        print("conf_file ", conf_file)
         if conf_file not in self.menus:
             print("building menu for {}".format(conf_file))
-            self.menus[conf_file] = build_menu(xdg.Menu.parse(conf_file))
+            tree = GMenu.Tree.new_for_path(conf_file, 0)
+            tree.load_sync()
+
+            # TODO: should we listen for if the menu was changed?
+            self.menus[conf_file] = build_menu(tree.get_root_directory())
         self.menus[conf_file].popup(None, None, None, None, 0, Gtk.get_current_event_time())
 
         Gio.Application.do_command_line(self, cl)
