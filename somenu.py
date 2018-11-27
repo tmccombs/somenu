@@ -15,6 +15,10 @@ from gi.repository import Gtk, Gio, GLib, GMenu
 import os.path
 
 MENU_CONFIG = "/etc/xdg/menus/applications.menu"
+ICON_SIZE = 48
+FOLDER_ICON = Gio.ThemedIcon.new('folder')
+APP_ICON = Gio.ThemedIcon.new('utilities-terminal')
+
 
 def build_menu(directory):
     'Build a Gtk.Menu from a GMenu.TreeDirectory'
@@ -34,14 +38,12 @@ def build_menu(directory):
     view.show_all()
     return view
 
-def build_menu_item(label, icon, comment):
+def build_menu_item(label, icon, comment, fallback_icon):
     'Create a Gtk.Menu'
     item = Gtk.MenuItem()
     box = Gtk.Box()
-    #TODO: better handling of missing icons
-    image = icon and Gtk.Image(gicon=icon, icon_size=Gtk.IconSize.DIALOG, pixel_size=48, use_fallback=True)
-    if image:
-        box.pack_start(image, False, False, 0)
+    image = get_image(icon, fallback_icon)
+    box.pack_start(image, False, False, 0)
     box.pack_end(Gtk.Label.new(label), True, True, 0)
     item.add(box)
     if comment is not None:
@@ -51,16 +53,36 @@ def build_menu_item(label, icon, comment):
 def create_entry(entry):
     'Create a Gtk.MenuItem for an GMenu.TreeEntry'
     info = entry.get_app_info()
-    item = build_menu_item(info.get_name(), info.get_icon(), info.get_description())
+    item = build_menu_item(info.get_name(), info.get_icon(), info.get_description(), APP_ICON)
     item.connect('activate', launch_app, info)
     return item
 
 def create_submenu(directory):
     'Add a submenu to a Gtk.Menu for a GMenu.TreeDirectory'
     submenu = build_menu(directory)
-    item = build_menu_item(directory.get_name(), directory.get_icon(), directory.get_comment())
+    item = build_menu_item(directory.get_name(), directory.get_icon(), directory.get_comment(), FOLDER_ICON)
     item.set_submenu(submenu)
     return item
+
+def load_icon(icon):
+    'Load the PixBuf for a Gio.Icon'
+    try:
+        key = icon.to_string()
+    except AttributeError:
+        return None
+    if key not in load_icon.lookup:
+        info = Gtk.IconTheme.get_default().lookup_by_gicon(
+            icon,
+            ICON_SIZE,
+            Gtk.IconLookupFlags.FORCE_SIZE)
+        pixbuf = info and info.load_icon()
+        load_icon.lookup[key] = pixbuf
+    return load_icon.lookup[key]
+load_icon.lookup = dict()
+
+def get_image(icon, fallback):
+    pixbuf = load_icon(icon) or load_icon(fallback)
+    return Gtk.Image.new_from_pixbuf(pixbuf)
 
 def launch_app(_menu, app):
     'Launch an app from the menu'
