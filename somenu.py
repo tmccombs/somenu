@@ -7,6 +7,7 @@ don't have built-in app launchers.
 '''
 
 import sys
+import traceback
 
 import gi
 gi.require_version('Gtk', '3.0')
@@ -75,7 +76,11 @@ def load_icon(icon):
             icon,
             ICON_SIZE,
             Gtk.IconLookupFlags.FORCE_SIZE)
-        pixbuf = info and info.load_icon()
+        try:
+            pixbuf = info and info.load_icon()
+        except GLib.Error:
+            traceback.print_exc()
+            pixbuf = None
         load_icon.lookup[key] = pixbuf
     return load_icon.lookup[key]
 load_icon.lookup = dict()
