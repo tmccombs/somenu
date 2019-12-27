@@ -12,7 +12,7 @@ import traceback
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('GMenu', '3.0')
-from gi.repository import Gtk, Gio, GLib, GMenu
+from gi.repository import Gtk, Gio, GLib, GMenu, Gdk
 import os.path
 
 MENU_CONFIG = "/etc/xdg/menus/applications.menu"
@@ -112,6 +112,8 @@ class MenuApplication(Gio.Application):
 
     def do_startup(self):
         self.hold()
+        self.window = Gtk.Window(resizable=False)
+        self.window.set_type_hint(Gdk.WindowTypeHint.MENU)
         Gio.Application.do_startup(self)
 
 
@@ -132,9 +134,13 @@ class MenuApplication(Gio.Application):
 
             # TODO: should we listen for if the menu was changed?
             self.menus[conf_file] = build_menu(tree.get_root_directory())
-        self.menus[conf_file].popup(None, None, None, None, 0, Gtk.get_current_event_time())
+        self.show_menu(self.menus[conf_file])
 
         Gio.Application.do_command_line(self, cl)
+
+    def show_menu(self, menu):
+        # using a popup without showing the root window is hacky, but it seems to work better than anything else
+        menu.popup_at_widget(self.window, Gdk.Gravity.STATIC, Gdk.Gravity.NORTH_WEST, None)
 
 def main():
     "Entrance point"
